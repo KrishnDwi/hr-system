@@ -103,50 +103,54 @@
     </div>
 </div>
 
-{{-- ===== Quick-glance tables (gaya "Work Order Baru" di referensi) ===== --}}
-<div class="content-card mb-3" style="border-left: 4px solid #f59e0b;">
-    <div class="content-card-header" style="color:#b45309;">Akan Expired (10 terdekat)</div>
+{{-- ===== Pengingat: Training yang perlu dijadwalkan tahun ini ===== --}}
+<div class="content-card">
+    <div class="content-card-header d-flex justify-content-between align-items-center">
+        <span>Training yang Perlu Dijadwalkan Tahun Ini ({{ date('Y') }})</span>
+        <span class="badge bg-danger">{{ $trainingsNeededThisYear->sum('need_count') }} slot karyawan</span>
+    </div>
     <div class="content-card-body p-0">
-        <table class="table mb-0">
+        <table class="table mb-0 align-middle">
             <thead>
-                <tr><th class="ps-4">Karyawan</th><th>Training</th><th class="pe-4">Expired</th></tr>
+                <tr>
+                    <th class="ps-4">Modul Training</th>
+                    <th>Kategori</th>
+                    <th>Karyawan Perlu Training</th>
+                    <th>Session Sudah Dibuat Tahun Ini</th>
+                    <th class="pe-4">Aksi</th>
+                </tr>
             </thead>
             <tbody>
-                @forelse($expiringList as $item)
+                @forelse($trainingsNeededThisYear as $item)
                     <tr>
-                        <td class="ps-4">{{ $item->employee->name }}</td>
-                        <td>{{ $item->training_name_snapshot }}</td>
-                        <td class="pe-4 text-warning fw-semibold">{{ $item->expired_at->format('d M Y') }}</td>
+                        <td class="ps-4 fw-semibold">{{ $item->module->name }}</td>
+                        <td>{{ $item->module->category ?? '-' }}</td>
+                        <td>
+                            <span class="badge bg-danger">{{ $item->need_count }} orang</span>
+                        </td>
+                        <td>{{ $item->sessions_this_year }} session</td>
+                        <td class="pe-4">
+                            <a href="{{ route('training-sessions.create', ['training_module_id' => $item->module->id]) }}"
+                               class="btn btn-sm btn-primary">
+                                Buat Session
+                            </a>
+                        </td>
                     </tr>
                 @empty
-                    <tr><td colspan="3" class="text-center text-muted py-3">Tidak ada data</td></tr>
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">
+                            🎉 Semua karyawan aktif sudah memenuhi mandatory training untuk tahun ini.
+                        </td>
+                    </tr>
                 @endforelse
             </tbody>
         </table>
     </div>
 </div>
-
-<div class="content-card" style="border-left: 4px solid #dc2626;">
-    <div class="content-card-header" style="color:#b91c1c;">Sudah Expired (10 terbaru)</div>
-    <div class="content-card-body p-0">
-        <table class="table mb-0">
-            <thead>
-                <tr><th class="ps-4">Karyawan</th><th>Training</th><th class="pe-4">Expired</th></tr>
-            </thead>
-            <tbody>
-                @forelse($expiredList as $item)
-                    <tr>
-                        <td class="ps-4">{{ $item->employee->name }}</td>
-                        <td>{{ $item->training_name_snapshot }}</td>
-                        <td class="pe-4 text-danger fw-semibold">{{ $item->expired_at->format('d M Y') }}</td>
-                    </tr>
-                @empty
-                    <tr><td colspan="3" class="text-center text-muted py-3">Tidak ada data</td></tr>
-                @endforelse
-            </tbody>
-        </table>
-    </div>
-</div>
+<small class="text-muted d-block mt-2">
+    "Perlu training" mencakup: belum pernah ikut sama sekali, sudah expired, atau akan expired
+    sebelum 31 Desember {{ date('Y') }} (meski saat ini statusnya masih valid).
+</small>
 @endsection
 
 @push('scripts')

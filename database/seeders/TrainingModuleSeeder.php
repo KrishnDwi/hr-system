@@ -49,6 +49,11 @@ class TrainingModuleSeeder extends Seeder
             ['code' => 'OPT-17', 'name' => 'Basic English for Hospitality', 'category' => 'Soft Skill', 'is_mandatory' => false, 'standard_duration_hours' => 8, 'validity_months' => null],
             ['code' => 'OPT-18', 'name' => 'Revenue Management Basic Concept', 'category' => 'Sales & Marketing', 'is_mandatory' => false, 'standard_duration_hours' => 3, 'validity_months' => null],
 
+            // ==== Sertifikasi eksternal (dari data HR Excel — bukan training internal) ====
+            // is_mandatory = false karena berlaku situasional (mis. hanya untuk F&B/tertentu),
+            // bukan wajib untuk seluruh karyawan seperti mandatory training lainnya.
+            ['code' => 'CERT-FOOD', 'name' => 'Sertifikasi Penjamah Makanan', 'category' => 'Sertifikasi Eksternal', 'is_mandatory' => false, 'standard_duration_hours' => null, 'validity_months' => 24],
+            ['code' => 'CERT-KOMP', 'name' => 'Sertifikasi Kompetensi', 'category' => 'Sertifikasi Eksternal', 'is_mandatory' => false, 'standard_duration_hours' => null, 'validity_months' => 36],
         ];
 
         foreach ($modules as $module) {

@@ -42,6 +42,8 @@ class TrainingModuleController extends Controller
 
     public function edit(TrainingModule $trainingModule)
     {
+        $trainingModule->load('materials');
+
         return view('training-modules.edit', compact('trainingModule'));
     }
 

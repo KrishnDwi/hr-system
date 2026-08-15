@@ -8,7 +8,6 @@ use App\Models\TrainingHistory;
 use App\Models\TrainingModule;
 use App\Models\TrainingSession;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -65,10 +64,16 @@ class DashboardController extends Controller
             ->get(['id', 'name']);
 
         // ==== Statistik Training per Bulan (tahun berjalan, Jan–Des) ====
+        // Sengaja TIDAK pakai raw SQL (mis. MONTH() ala MySQL) karena tidak
+        // portable ke SQLite (driver default project ini). whereYear() adalah
+        // method bawaan Laravel yang otomatis diterjemahkan ke sintaks yang
+        // benar sesuai driver aktif (MySQL/SQLite/Postgres) — pengelompokan
+        // per bulan dilakukan di PHP supaya tidak bergantung ke fungsi SQL
+        // spesifik database tertentu.
         $sessionsPerMonthRaw = TrainingSession::whereYear('session_date', $today->year)
-            ->select(DB::raw("CAST(strftime('%m', session_date) AS INTEGER) as month"), DB::raw('COUNT(*) as total'))
-            ->groupBy('month')
-            ->pluck('total', 'month');
+            ->get(['session_date'])
+            ->groupBy(fn ($session) => $session->session_date->month)
+            ->map->count();
 
         $monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
         $sessionsPerMonth = [];
@@ -76,20 +81,45 @@ class DashboardController extends Controller
             $sessionsPerMonth[] = $sessionsPerMonthRaw[$m] ?? 0;
         }
 
-        // ==== Daftar mandatory training yang akan/expired (untuk quick-glance table) ====
-        $expiringList = TrainingHistory::with('employee')
-            ->mandatory()
-            ->expiringSoon()
-            ->orderBy('expired_at')
-            ->limit(10)
-            ->get();
+        // ==== Pengingat: Training apa saja yang perlu dijadwalkan TAHUN INI ====
+        // Dikelompokkan per Modul Training (bukan per baris karyawan) — supaya HRD
+        // langsung tahu "training apa yang perlu diadakan", bukan sekadar daftar
+        // nama yang expired satu-satu.
+        //
+        // Definisi "perlu tahun ini": karyawan aktif yang TIDAK punya riwayat modul
+        // tsb yang validitasnya bertahan sampai akhir tahun ini. Ini mencakup 3 kasus
+        // sekaligus: belum pernah ikut sama sekali, sudah expired, atau akan expired
+        // sebelum 31 Desember tahun ini (meski saat ini masih valid).
+        $yearEnd = $today->copy()->endOfYear()->toDateString();
 
-        $expiredList = TrainingHistory::with('employee')
+        $trainingsNeededThisYear = TrainingModule::active()
             ->mandatory()
-            ->expired()
-            ->orderByDesc('expired_at')
-            ->limit(10)
-            ->get();
+            ->get()
+            ->map(function ($module) use ($yearEnd) {
+                $employeeIdsCoveredPastYearEnd = TrainingHistory::where('training_module_id', $module->id)
+                    ->where(function ($q) use ($yearEnd) {
+                        $q->whereNull('expired_at')->orWhere('expired_at', '>', $yearEnd);
+                    })
+                    ->pluck('employee_id')
+                    ->unique();
+
+                $needCount = Employee::active()
+                    ->whereNotIn('id', $employeeIdsCoveredPastYearEnd)
+                    ->count();
+
+                $sessionsThisYearForModule = TrainingSession::where('training_module_id', $module->id)
+                    ->whereYear('session_date', now()->year)
+                    ->count();
+
+                return (object) [
+                    'module' => $module,
+                    'need_count' => $needCount,
+                    'sessions_this_year' => $sessionsThisYearForModule,
+                ];
+            })
+            ->filter(fn ($item) => $item->need_count > 0)
+            ->sortByDesc('need_count')
+            ->values();
 
         return view('dashboard.index', compact(
             'totalEmployees',
@@ -104,8 +134,7 @@ class DashboardController extends Controller
             'statsByDepartment',
             'monthLabels',
             'sessionsPerMonth',
-            'expiringList',
-            'expiredList',
+            'trainingsNeededThisYear',
         ));
     }
 }

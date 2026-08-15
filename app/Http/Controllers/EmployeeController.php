@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreEmployeeRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
+use App\Exports\EmployeeMasterExport;
 use App\Imports\EmployeesImport;
 use App\Models\Department;
 use App\Models\Employee;
@@ -64,7 +65,13 @@ class EmployeeController extends Controller
 
     public function store(StoreEmployeeRequest $request)
     {
-        Employee::create($request->validated());
+        $validated = $request->validated();
+
+        if (empty($validated['password'])) {
+            unset($validated['password']);
+        }
+
+        Employee::create($validated);
 
         return redirect()
             ->route('employees.index')
@@ -80,7 +87,17 @@ class EmployeeController extends Controller
 
     public function update(UpdateEmployeeRequest $request, Employee $employee)
     {
-        $employee->update($request->validated());
+        $validated = $request->validated();
+
+        // Password dikosongkan di form = TIDAK diubah, bukan dihapus.
+        // Kalau HRD memang ingin karyawan tidak bisa login, gunakan
+        // employment_status (inactive/resigned) — itu juga otomatis
+        // memblokir login (lihat EmployeeAuthController).
+        if (empty($validated['password'])) {
+            unset($validated['password']);
+        }
+
+        $employee->update($validated);
 
         return redirect()
             ->route('employees.index')
@@ -100,9 +117,51 @@ class EmployeeController extends Controller
             ->with('success', 'Karyawan berhasil dinonaktifkan. Riwayat training tetap tersimpan.');
     }
 
+    /**
+     * Detail karyawan + riwayat training (sudah dilakukan) + mandatory
+     * training yang belum/perlu dilakukan (belum pernah ATAU sudah expired).
+     */
+    public function show(Employee $employee)
+    {
+        $employee->load('department', 'contracts');
+
+        $trainingHistories = $employee->trainingHistories()
+            ->orderByDesc('training_date')
+            ->get();
+
+        $missingMandatoryModules = $employee->missingMandatoryModules();
+
+        return view('employees.show', compact('employee', 'trainingHistories', 'missingMandatoryModules'));
+    }
+
     public function showImportForm()
     {
         return view('employees.import');
+    }
+
+    /**
+     * Export SATU baris per karyawan, semua field profil HR (bukan riwayat
+     * training seperti Report). Filter mengikuti filter yang sedang aktif
+     * di halaman index (departemen/status/kategori), dikirim lewat query string.
+     */
+    public function exportMaster(Request $request)
+    {
+        $query = Employee::with('department', 'contracts')->orderBy('name');
+
+        if ($request->filled('department_id')) {
+            $query->where('department_id', $request->department_id);
+        }
+        if ($request->filled('employment_status')) {
+            $query->where('employment_status', $request->employment_status);
+        }
+        if ($request->filled('employee_type')) {
+            $query->where('employee_type', $request->employee_type);
+        }
+
+        return Excel::download(
+            new EmployeeMasterExport($query),
+            'data-karyawan-lengkap-' . now()->format('Ymd-His') . '.xlsx'
+        );
     }
 
     public function import(Request $request)

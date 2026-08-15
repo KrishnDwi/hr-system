@@ -53,6 +53,7 @@ Route::resource('training-modules', TrainingModuleController::class)
 
 // Data Karyawan
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\EmployeeContractController;
 
 Route::get('employees/data', [EmployeeController::class, 'data'])
     ->name('employees.data'); // didaftarkan sebelum resource, sama seperti training-modules/data
@@ -62,8 +63,17 @@ Route::get('employees/import', [EmployeeController::class, 'showImportForm'])
 Route::post('employees/import', [EmployeeController::class, 'import'])
     ->name('employees.import');
 
-Route::resource('employees', EmployeeController::class)
-    ->except(['show']);
+Route::get('employees/export/master', [EmployeeController::class, 'exportMaster'])
+    ->name('employees.export.master');
+
+Route::resource('employees', EmployeeController::class);
+// Catatan: 'show' TIDAK di-except lagi seperti sebelumnya — sekarang dipakai
+// untuk halaman Detail Karyawan (riwayat training + mandatory yang belum/perlu dilakukan).
+
+Route::post('employees/{employee}/contracts', [EmployeeContractController::class, 'store'])
+    ->name('employees.contracts.store');
+Route::delete('employees/{employee}/contracts/{contract}', [EmployeeContractController::class, 'destroy'])
+    ->name('employees.contracts.destroy');
 
 // Dashboard
 use App\Http\Controllers\DashboardController;
@@ -258,6 +268,200 @@ sistem terpisah, bukan menumpuk di ETMS yang fokus untuk training.
 
 ### e. Limit ukuran file upload dinaikkan
 Dari 5MB → 10MB (`max:10240`) karena file HR multi-sheet biasanya lebih besar.
+
+## 19. Update — Widget Dashboard Diganti: Pengingat Per Modul Training ✅
+
+Sesuai masukan Anda, 2 tabel quick-glance lama ("Akan Expired 10 terdekat" /
+"Sudah Expired 10 terbaru" — yang list per baris karyawan) diganti dengan satu
+widget **"Training yang Perlu Dijadwalkan Tahun Ini"**, dikelompokkan **per
+Modul Training** — lebih cocok untuk perencanaan HRD ("training apa yang perlu
+diadakan tahun ini"), bukan sekadar daftar siapa yang expired.
+
+**Definisi "perlu training tahun ini"** (sengaja dibuat lebih luas dari sekadar
+"akan expired ≤30 hari"): karyawan aktif yang riwayatnya untuk modul tersebut
+TIDAK bertahan sampai 31 Desember tahun berjalan. Ini otomatis mencakup 3 kondisi
+sekaligus — belum pernah ikut, sudah expired, atau akan expired sebelum akhir
+tahun meski saat ini masih valid.
+
+Tiap baris juga menampilkan **jumlah Training Session yang sudah dibuat tahun
+ini** untuk modul tersebut (supaya HRD tahu progress penjadwalan), dan tombol
+**"Buat Session"** yang langsung mengarah ke form Training Session dengan modul
+tersebut sudah ter-pilih otomatis (lewat query string `?training_module_id=`).
+
+Kartu ringkasan "Akan Expired" / "Sudah Expired" di bagian atas dashboard
+tetap dipertahankan sebagai angka cepat — hanya tabel detail di bawahnya yang
+diganti.
+
+## 20. Update — Perbaikan Portabilitas Database (SQLite-safe) ✅
+
+Anda memakai SQLite (default Laravel 12 saat `php artisan install` tanpa pilih
+driver lain), sementara kode dashboard sebelumnya pakai `MONTH(session_date)`
+yang merupakan fungsi **khusus MySQL** — makanya error saat dijalankan.
+
+**Sudah diperbaiki di `DashboardController.php`**: statistik per bulan sekarang
+memakai `whereYear()` (method bawaan Laravel yang otomatis diterjemahkan ke
+sintaks yang benar sesuai driver database aktif) lalu pengelompokan per bulan
+dilakukan di PHP — bukan lewat `DB::raw()` yang terikat ke satu jenis database.
+
+Saya juga sudah cek **seluruh file lain di project ini** — tidak ada raw SQL
+sejenis di tempat lain, jadi ini satu-satunya titik yang perlu diperbaiki.
+Ke depannya, setiap kode yang saya berikan akan saya tulis database-agnostic
+dari awal supaya Anda tidak perlu edit manual lagi setiap kali menumpuk file baru.
+
+## 21. Update — Halaman Detail Karyawan (Riwayat Training Sudah/Belum Dilakukan) ✅
+
+Klik tombol **"Detail"** di baris karyawan (Data Karyawan → Detail) sekarang
+menampilkan:
+
+- **Info karyawan** — NIK, departemen, jabatan, kategori pekerja, status, kontak.
+- **Mandatory Training yang Belum/Perlu Dilakukan** — daftar modul mandatory
+  yang belum pernah diikuti ATAU riwayatnya sudah expired (pakai method
+  `Employee::missingMandatoryModules()` yang sekaligus saya perbaiki di update
+  ini — sebelumnya hanya mengecek "belum pernah ikut", sekarang juga menghitung
+  yang sudah expired sebagai "perlu diulang", konsisten dengan logika Dashboard).
+- **Riwayat Training** — seluruh `TrainingHistory` karyawan tsb, dengan badge
+  status (Valid/Akan Expired/Expired/Tanpa Masa Berlaku), diurutkan terbaru dulu.
+
+**Route yang perlu diperhatikan**: `Route::resource('employees', ...)` sekarang
+TIDAK lagi meng-except `show` seperti sebelumnya (lihat bagian 3 di atas yang
+sudah saya update) — pastikan route Anda memakai versi terbaru.
+
+## 22. Update Besar — Profil HR Lengkap (atas konfirmasi Anda: semua kategori) ✅
+
+Field-field berikut ditambahkan ke `employees` (migration
+`add_hr_profile_fields_to_employees_table`): demografi personal, keluarga,
+finansial/legal, dan pendidikan — sesuai konfirmasi Anda sebelumnya.
+
+**Jalankan 2 migration baru:**
+```bash
+php artisan migrate
+```
+
+### Keputusan desain penting
+- **`nik_ktp`** (NIK KTP asli) adalah kolom **BARU dan TERPISAH** dari kolom
+  `nik` yang sudah ada sejak awal (yang sebenarnya "ID No." badge karyawan,
+  bukan NIK KTP — lihat diskusi sebelumnya). Jangan sampai tertukar.
+- **"Age" tidak disimpan** — dihitung otomatis dari `date_of_birth` lewat
+  accessor `$employee->age`, supaya tidak pernah basi (prinsip yang sama
+  dengan status expired di Training History).
+- **Riwayat kontrak (Contract 1–5, Last Contract, Permanen) dinormalisasi**
+  jadi tabel terpisah `employee_contracts`, bukan belasan kolom pipih —
+  supaya fleksibel (tidak terbatas 5 kontrak) dan bisa dikelola dari halaman
+  Detail Karyawan (tambah/hapus riwayat kontrak).
+- **Import Excel diperbarui** untuk mengisi semua field baru ini otomatis,
+  termasuk penanganan khusus untuk kolom **"End Contract" yang muncul
+  berulang 5x dengan nama persis sama** di file asli Anda — ini di-parsing
+  berdasarkan **posisi kolom** (bukan nama), supaya tidak ada nilai yang
+  tertimpa/hilang.
+- Kolom "Permanen" (tanggal jadi karyawan tetap) ikut ter-import sebagai
+  salah satu baris di `employee_contracts` dengan `type = permanent`.
+
+### Export "Data Karyawan Lengkap" (jawaban untuk permintaan Report Anda)
+Karena field sekarang sangat banyak (30+), menambahkannya ke Report Training
+yang sudah ada akan membuatnya sangat lebar & berulang per baris training.
+Sebagai gantinya, saya buat **export terpisah** di halaman **Data Karyawan**
+(tombol "Export Data Lengkap") — **satu baris per karyawan**, mencakup semua
+field HR di atas. Report Training (halaman Report) tetap fokus ke riwayat
+training seperti sebelumnya.
+
+### ⚠️ Catatan keamanan data
+File export "Data Karyawan Lengkap" memuat data sensitif (NPWP, NIK KTP,
+rekening bank, BPJS). Karena sistem ini belum punya role/permission (sesuai
+keputusan awal untuk MVP), **siapa pun yang bisa akses ETMS bisa download
+data ini**. Kalau ini jadi perhatian, opsi ke depannya: tambah login+role
+sederhana khusus untuk membatasi menu ini ke HRD Manager saja.
+
+## 23. Fitur Baru — Portal Karyawan: Materi Training Bisa Diakses & Didownload ✅
+
+### a. Migration baru
+```bash
+php artisan migrate
+```
+Menambahkan kolom `password`+`remember_token` di `employees`, dan tabel baru
+`training_materials`.
+
+### b. ⚠️ WAJIB: Tambahkan guard 'employee' di `config/auth.php`
+
+Saya TIDAK menimpa file `config/auth.php` Anda (berisiko menghapus konfigurasi
+lain yang mungkin sudah ada). Tambahkan manual 2 blok ini:
+
+```php
+// Di dalam array 'guards' =>
+'employee' => [
+    'driver' => 'session',
+    'provider' => 'employees',
+],
+
+// Di dalam array 'providers' =>
+'employees' => [
+    'driver' => 'eloquent',
+    'model' => App\Models\Employee::class,
+],
+```
+
+### c. Tambahkan Route (routes/web.php)
+
+```php
+use App\Http\Controllers\EmployeeAuthController;
+use App\Http\Controllers\EmployeePortalController;
+use App\Http\Controllers\TrainingMaterialController;
+
+// Login Portal Karyawan (guest — belum login)
+Route::middleware('guest:employee')->group(function () {
+    Route::get('/portal/login', [EmployeeAuthController::class, 'showLoginForm'])->name('portal.login');
+    Route::post('/portal/login', [EmployeeAuthController::class, 'login'])->name('portal.login.submit');
+});
+
+// Halaman Portal (WAJIB login sebagai employee)
+Route::middleware('auth:employee')->group(function () {
+    Route::get('/portal', [EmployeePortalController::class, 'index'])->name('portal.index');
+    Route::get('/portal/materials/{material}/download', [EmployeePortalController::class, 'download'])
+        ->name('portal.materials.download');
+    Route::post('/portal/logout', [EmployeeAuthController::class, 'logout'])->name('portal.logout');
+});
+
+// Upload/hapus materi (sisi HR — di halaman Edit Master Training)
+Route::post('training-modules/{training_module}/materials', [TrainingMaterialController::class, 'store'])
+    ->name('training-modules.materials.store');
+Route::delete('training-modules/{training_module}/materials/{material}', [TrainingMaterialController::class, 'destroy'])
+    ->name('training-modules.materials.destroy');
+```
+
+### d. Cara HRD Memberi Akses Karyawan
+Buka **Data Karyawan → Edit** karyawan yang bersangkutan, isi field **"Password
+Login Portal"** di seksi paling bawah. Karyawan login pakai **ID No.** (bukan
+NIK KTP — sama seperti field identifier lain di sistem ini) + password itu.
+Kosongkan field ini saat edit = password tidak berubah.
+
+### e. Cara HRD Upload Materi
+Buka **Master Training → Edit** modul yang bersangkutan → scroll ke bawah ke
+card **"Materi Training"** → isi judul + pilih file → Upload. Mendukung semua
+jenis file (PDF, PPT, Word, video, dll), maksimal 50MB per file.
+
+### f. Keputusan Desain Penting
+- **File disimpan di disk `local` (privat)**, BUKAN disk `public` — jadi tidak
+  ada URL langsung ke file. Karyawan HARUS login dan lewat route
+  `portal.materials.download` (dilindungi `auth:employee`) untuk bisa
+  mengunduh. Ini sengaja lebih aman daripada sekadar taruh di folder public.
+- **Guard `employee` TERPISAH TOTAL dari sesi HRD** — Employee model
+  extends `Authenticatable` sendiri, beda dari `User` (HRD). Karyawan yang
+  login TIDAK bisa mengakses halaman admin HRD sama sekali (memang belum
+  ada middleware apapun di halaman admin — lihat catatan di bawah).
+- **Login otomatis ditolak untuk karyawan resign/nonaktif** — kondisi
+  `employment_status = active` ikut jadi syarat saat `Auth::attempt()`,
+  jadi tidak perlu pengecekan status manual terpisah.
+- **Employee::missingMandatoryModules()** yang sudah ada dipakai ulang di
+  Portal, supaya karyawan juga bisa lihat sendiri mandatory training apa
+  yang masih perlu dilakukan.
+
+### ⚠️ Catatan penting yang perlu Anda sadari
+Sisi **admin/HRD (Dashboard, Data Karyawan, Master Training, dll) masih
+TANPA LOGIN SAMA SEKALI** — sesuai keputusan awal MVP. Dengan fitur ini,
+artinya: **siapa pun yang bisa akses jaringan internal bisa upload/hapus
+materi training dan mengatur password login karyawan lain**, tapi karyawan
+sendiri tidak bisa masuk ke sisi admin. Kalau ini jadi perhatian keamanan,
+beri tahu saya — bisa saya tambahkan login sederhana untuk HRD juga
+(terpisah dari guard `employee` ini, pakai guard `web` default Laravel).
 
 ## 18. Update — Tampilan Direstyle (Sidebar Admin Panel Style) ✅
 

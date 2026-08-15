@@ -17,7 +17,7 @@
                     <select name="training_module_id" class="form-select @error('training_module_id') is-invalid @enderror" required>
                         <option value="">-- Pilih Modul Training --</option>
                         @foreach($modules as $module)
-                            <option value="{{ $module->id }}" @selected(old('training_module_id') == $module->id)>
+                            <option value="{{ $module->id }}" @selected(old('training_module_id', request('training_module_id')) == $module->id)>
                                 {{ $module->code }} — {{ $module->name }} @if($module->is_mandatory) (Mandatory) @endif
                             </option>
                         @endforeach

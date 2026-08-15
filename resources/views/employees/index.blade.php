@@ -5,6 +5,9 @@
 @section('page-subtitle', 'Kelola data seluruh karyawan.')
 
 @section('page-actions')
+    <a href="{{ route('employees.export.master') }}" class="btn btn-outline-dark">
+        <i class="bi bi-download"></i> Export Data Lengkap
+    </a>
     <a href="{{ route('employees.import.form') }}" class="btn btn-success">
         <i class="bi bi-file-earmark-excel"></i> Import Excel
     </a>
@@ -124,6 +127,7 @@ $(function () {
                 data: 'id',
                 orderable: false,
                 render: (id) => `
+                    <a href="/employees/${id}" class="btn btn-sm btn-outline-secondary">Detail</a>
                     <a href="/employees/${id}/edit" class="btn btn-sm btn-outline-primary">Edit</a>
                     <form action="/employees/${id}" method="POST" class="d-inline" onsubmit="return confirm('Nonaktifkan karyawan ini?')">
                         <input type="hidden" name="_token" value="{{ csrf_token() }}">

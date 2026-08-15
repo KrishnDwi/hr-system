@@ -31,6 +31,11 @@ class TrainingModule extends Model
         return $this->hasMany(TrainingSession::class);
     }
 
+    public function materials(): HasMany
+    {
+        return $this->hasMany(TrainingMaterial::class);
+    }
+
     public function histories(): HasMany
     {
         return $this->hasMany(TrainingHistory::class);
